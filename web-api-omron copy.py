@@ -9,6 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 config = configparser.ConfigParser()
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.ini")
 
 if not os.path.exists(CONFIG_PATH):
@@ -16,7 +17,7 @@ if not os.path.exists(CONFIG_PATH):
 
 config.read(CONFIG_PATH, encoding="utf-8")
 
-if "DATABASE_MAIN" not in config:
+if "DATABASE_MAIN" not in config.sections():
     raise Exception("Section DATABASE_MAIN tidak ditemukan")
 
 DB_CONFIG = {
@@ -53,10 +54,10 @@ def create_device():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "INSERT INTO devices (employee_id, device_id, created_at) VALUES (?, ?, ?)",
-        (employee_id, device_id, created_at)
-    )
+    cursor.execute("""
+        INSERT INTO devices (employee_id, device_id, created_at)
+        VALUES (?, ?, ?)
+    """, (employee_id, device_id, created_at))
 
     conn.commit()
 
@@ -80,9 +81,11 @@ def get_latest_device():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT TOP 1 id, employee_id, device_id, created_at FROM devices ORDER BY created_at DESC"
-    )
+    cursor.execute("""
+        SELECT TOP 1 id, employee_id, device_id, created_at
+        FROM devices
+        ORDER BY created_at DESC
+    """)
 
     row = cursor.fetchone()
     conn.close()
@@ -90,17 +93,17 @@ def get_latest_device():
     if not row:
         return jsonify({})
 
-    created_at = row[3]
+    data = {
+        "id": row[0],
+        "employee_id": row[1],
+        "device_id": row[2],
+        "created_at": row[3].strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-    if (datetime.now() - created_at) <= timedelta(seconds=10):
-        return jsonify({
-            "data": {
-                "id": row[0],
-                "employee_id": row[1],
-                "device_id": row[2],
-                "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S")
-            }
-        })
+    created_at = datetime.strptime(data["created_at"], "%Y-%m-%d %H:%M:%S")
+
+    if (datetime.now() - created_at) <= timedelta(seconds=5):
+        return jsonify({"data": data})
 
     return jsonify({})
 
