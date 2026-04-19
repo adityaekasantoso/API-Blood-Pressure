@@ -11,7 +11,14 @@ CORS(app)
 config = configparser.ConfigParser()
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.ini")
-config.read(CONFIG_PATH)
+
+if not os.path.exists(CONFIG_PATH):
+    raise Exception("config.ini tidak ditemukan")
+
+config.read(CONFIG_PATH, encoding="utf-8")
+
+if "DATABASE_MAIN" not in config.sections():
+    raise Exception("Section DATABASE_MAIN tidak ditemukan")
 
 DB_CONFIG = {
     "server": config.get("DATABASE_MAIN", "server"),
@@ -20,7 +27,6 @@ DB_CONFIG = {
     "password": config.get("DATABASE_MAIN", "password"),
     "driver": config.get("DATABASE_MAIN", "driver"),
 }
-
 
 def get_db_connection():
     conn_str = (
@@ -33,7 +39,6 @@ def get_db_connection():
     )
     return pyodbc.connect(conn_str)
 
-
 @app.route("/api/devices", methods=["POST"])
 def create_device():
     data = request.get_json()
@@ -42,10 +47,7 @@ def create_device():
     device_id = data.get("device_id")
 
     if not employee_id or not device_id:
-        return jsonify({
-            "status": "error",
-            "message": "employee_id dan device_id wajib diisi"
-        }), 400
+        return jsonify({"status": "error"}), 400
 
     created_at = datetime.now()
 
@@ -59,7 +61,7 @@ def create_device():
 
     conn.commit()
 
-    cursor.execute("SELECT @@IDENTITY")
+    cursor.execute("SELECT SCOPE_IDENTITY()")
     new_id = cursor.fetchone()[0]
 
     conn.close()
@@ -74,14 +76,13 @@ def create_device():
         }
     }), 201
 
-
 @app.route("/api/devices", methods=["GET"])
 def get_latest_device():
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT TOP 1 *
+        SELECT TOP 1 id, employee_id, device_id, created_at
         FROM devices
         ORDER BY created_at DESC
     """)
@@ -89,25 +90,22 @@ def get_latest_device():
     row = cursor.fetchone()
     conn.close()
 
-    if row:
-        data = {
-            "id": row[0],
-            "employee_id": row[1],
-            "device_id": row[2],
-            "created_at": row[3].strftime("%Y-%m-%d %H:%M:%S")
-        }
+    if not row:
+        return jsonify({})
 
-        created_at = datetime.strptime(data["created_at"], "%Y-%m-%d %H:%M:%S")
-        now = datetime.now()
+    data = {
+        "id": row[0],
+        "employee_id": row[1],
+        "device_id": row[2],
+        "created_at": row[3].strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-        if (now - created_at) <= timedelta(seconds=5):
-            return jsonify({"data": data})
+    created_at = datetime.strptime(data["created_at"], "%Y-%m-%d %H:%M:%S")
+
+    if (datetime.now() - created_at) <= timedelta(seconds=5):
+        return jsonify({"data": data})
 
     return jsonify({})
 
-
-# =========================
-# MAIN
-# =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9000, debug=True)
